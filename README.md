@@ -19,4 +19,5 @@ A minimalist BitTorrent client written in Rust
 - [ ] **File I/O:** Write verified pieces to the disk and handle multi-file torrent layouts.
 - [ ] **Concurrency:** Use `tokio` to manage multiple peer connections simultaneously.
 - [ ] **CLI Interface:** Create a basic terminal dashboard to monitor download speed and progress.
+- [ ] **Extension:** Add support for optional extensions.
 - [ ] **μTP Protocol:** Implement the μTP protocol for efficient file sharing.
