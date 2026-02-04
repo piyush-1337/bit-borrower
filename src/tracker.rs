@@ -1,7 +1,11 @@
-use serde::Serialize;
+use std::net::{Ipv4Addr, SocketAddrV4};
+
+use anyhow::Context;
+use serde::{Deserialize, Serialize};
+use serde_bytes::ByteBuf;
 use url::form_urlencoded;
 
-use crate::torrent::Torrent;
+use crate::{peer::Peer, torrent::Torrent};
 
 #[derive(Debug, Serialize)]
 pub struct TrackerRequest {
@@ -123,5 +127,68 @@ impl TrackerRequest {
         }
 
         url
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct TrackerResponse {
+    /// If present, then no other keys may be present.
+    /// The value is a human-readable error message as to why the request failed (string).
+    #[serde(rename = "failure reason")]
+    pub failure_reason: Option<String>,
+
+    /// (new, optional) Similar to failure reason, but the response still gets processed normally.
+    /// The warning message is shown just like an error.
+    #[serde(rename = "warning message")]
+    pub warning_message: Option<String>,
+
+    /// Interval in seconds that the client should wait between sending regular requests to the tracker
+    pub interval: Option<u64>,
+
+    /// (optional) Minimum announce interval. If present clients must not reannounce more frequently than this.
+    #[serde(rename = "min interval")]
+    pub min_interval: Option<u64>,
+
+    /// A string that the client should send back on its next announcements.
+    /// If absent and a previous announce sent a tracker id, do not discard the old value; keep using it.
+    #[serde(rename = "tracker id")]
+    pub tracker_id: Option<String>,
+
+    /// number of peers with the entire file, i.e. seeders (integer)
+    pub complete: Option<u64>,
+
+    /// number of non-seeder peers, aka "leechers" (integer)
+    pub incomplete: Option<u64>,
+
+    /// (dictionary model) The value is a list of dictionaries, each with the following keys:
+    pub peers: Option<ByteBuf>,
+}
+
+impl TrackerResponse {
+    pub fn from_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+        serde_bencode::from_bytes(bytes)
+            .context("Failed to deserialize tracker response")
+    }
+
+    pub fn get_peers(&self) -> anyhow::Result<Vec<Peer>> {
+        let mut peers = Vec::new();
+
+        let peers_binary = match &self.peers {
+            Some(p) => p,
+            None => return Ok(peers),
+        };
+        
+        for chunk in peers_binary.chunks(6) {
+            if chunk.len() == 6 {
+                let ip = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]);
+                let port = u16::from_be_bytes([chunk[4], chunk[5]]);
+
+                let addr = SocketAddrV4::new(ip, port);
+                peers.push(Peer::new(addr));
+            }
+        }
+
+        Ok(peers)
     }
 }

@@ -1,10 +1,11 @@
 pub mod torrent;
 pub mod tracker;
+pub mod peer;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::{torrent::Torrent, tracker::TrackerRequest};
+use crate::{torrent::Torrent, tracker::{TrackerRequest, TrackerResponse}};
 
 #[derive(Parser)]
 #[command(name = "BitBorrower")]
@@ -22,6 +23,11 @@ enum Commands {
     },
 
     SendRequest {
+        #[arg(short, long)]
+        file: PathBuf,
+    },
+
+    GetPeers {
         #[arg(short, long)]
         file: PathBuf,
     },
@@ -86,6 +92,38 @@ fn main() -> anyhow::Result<()> {
             println!("Response Status: Success");
             println!("Response Body: {:?}", body);
 
+        }
+
+        Commands::GetPeers { file } => {
+            let torrent = Torrent::read(&file)?;
+            let info_hash = torrent.info.hash()?;
+
+            let peer_id = "-BB0001-123456789012";
+            let port = 6881;
+
+            let request = TrackerRequest::new(&torrent, &info_hash, peer_id, port);
+
+            let url_param = request.as_query_string();
+            let tracker_url = format!("{}?{}", torrent.announce, url_param);
+
+            println!("Tracker URL: {}", tracker_url);
+
+            let response = reqwest::blocking::get(&tracker_url)?;
+            let body_bytes = &response.bytes()?;
+
+            let tracker_response = TrackerResponse::from_bytes(body_bytes)?;
+
+            if let Some(fail_reason) = tracker_response.failure_reason {
+                anyhow::bail!("Failure reason: {}", fail_reason);
+            }
+
+            let peers = tracker_response.get_peers()?;
+
+            println!("Found {} peers", peers.len());
+
+            for (i, peer) in peers.iter().enumerate() {
+                println!("Peer #{}: {:?}", i + 1, peer);
+            }
         }
     }
 
