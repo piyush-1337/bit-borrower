@@ -8,9 +8,9 @@ A minimalist BitTorrent client written in Rust
 
 ## Implementation Checklist
 
-- [ ] **Parse Bencode:** Implement logic to decode `.torrent` files and extract the info-hash and tracker URL.
-- [ ] **Tracker Announce:** Send an HTTP/UDP request to the tracker to receive a list of active peers.
-- [ ] **Peer Handshake:** Establish a TCP connection and perform the initial 68-byte BitTorrent handshake.
+- [x] **Parse Bencode:** Implement logic to decode `.torrent` files and extract the info-hash and tracker URL.
+- [x] **Tracker Announce:** Send an HTTP/UDP request to the tracker to receive a list of active peers.
+- [x] **Peer Handshake:** Establish a TCP connection and perform the initial 68-byte BitTorrent handshake.
 - [ ] **Message Framing:** Implement a length-prefixed message parser for the Peer Wire Protocol.
 - [ ] **Bitfield Handling:** Track which pieces peers have and broadcast your own availability.
 - [ ] **Choke/Unchoke Logic:** Manage the state machine for peer interest and choking status.

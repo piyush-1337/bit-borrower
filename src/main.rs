@@ -1,14 +1,14 @@
 pub mod peer;
 pub mod torrent;
 pub mod tracker;
+pub mod message;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 use crate::{
-    torrent::Torrent,
-    tracker::{TrackerRequest, TrackerResponse},
+    message::Message, torrent::Torrent, tracker::{TrackerRequest, TrackerResponse}
 };
 
 #[derive(Parser)]
@@ -147,6 +147,38 @@ async fn main() -> anyhow::Result<()> {
             match peer.handshake(info_hash, PEER_ID).await {
                 Ok(peer_id) => println!("Remote Peer ID: {}", hex::encode(peer_id)),
                 Err(e) => println!("Error: {}", e),
+            }
+
+            println!("Connected to peer: {}", peer.addr);
+            println!("Waiting for messages");
+
+            loop {
+                let msg = peer.next_message().await?;
+
+                match msg {
+                    Message::Bitfield(payload) => {
+                        println!("Received Bitfield");
+
+                        println!("Sending Interested");
+                        peer.send_message(Message::Interested).await?;
+                    }
+
+                    Message::Unchoke => {
+                        println!("Received Unchoke");
+                    }
+
+                    Message::Choke => {
+                        println!("Received Choke");
+                    }
+
+                    Message::Have(index) => {
+                        println!("Received Have: {}", index);
+                    }
+
+                    _ => {
+                        println!("Received other message: {:#?}", msg);
+                    }
+                }
             }
         }
     }

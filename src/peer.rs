@@ -3,6 +3,8 @@ use std::net::SocketAddrV4;
 use anyhow::Context;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::message::Message;
+
 #[derive(Debug)]
 pub struct Peer {
     pub addr: SocketAddrV4,
@@ -46,6 +48,41 @@ impl Peer {
         self.stream = Some(stream);
 
         Ok(response.peer_id)
+    }
+
+    pub async fn next_message(&mut self) -> anyhow::Result<Message> {
+        let stream = self.stream.as_mut().context("Peer is not connected")?;
+
+        let mut length_buf = [0u8; 4];
+        stream
+            .read_exact(&mut length_buf)
+            .await
+            .context("Failed to read message length")?;
+        let length = u32::from_be_bytes(length_buf);
+
+        if length == 0 {
+            println!("Received keep-alive message");
+            return Box::pin(self.next_message()).await;
+        }
+
+        let mut message_buf = vec![0u8; length as usize];
+        stream
+            .read_exact(&mut message_buf)
+            .await
+            .context("Failed to read message")?;
+        Message::deserialize(message_buf[0], &message_buf[1..])
+    }
+
+    pub async fn send_message(&mut self, msg: Message) -> anyhow::Result<()> {
+        let stream = self.stream.as_mut().context("Peer is not connected")?;
+
+        let msg_bytes = msg.serialize();
+        stream
+            .write_all(&msg_bytes)
+            .await
+            .context("Failed to write message")?;
+
+        Ok(())
     }
 }
 
