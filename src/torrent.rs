@@ -43,8 +43,8 @@ pub struct File {
 }
 
 impl Torrent {
-    pub fn read(file_path: impl AsRef<std::path::Path>) -> anyhow::Result<Self> {
-        let file_content = std::fs::read(&file_path)
+    pub async fn read(file_path: impl AsRef<std::path::Path>) -> anyhow::Result<Self> {
+        let file_content = tokio::fs::read(&file_path).await
             .with_context(|| format!("Failed to read file: {}", file_path.as_ref().display()))?;
 
         let torrent: Torrent =
