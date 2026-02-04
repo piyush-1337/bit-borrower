@@ -1,9 +1,10 @@
 pub mod torrent;
+pub mod tracker;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::torrent::Torrent;
+use crate::{torrent::Torrent, tracker::TrackerRequest};
 
 #[derive(Parser)]
 #[command(name = "BitBorrower")]
@@ -19,6 +20,11 @@ enum Commands {
         #[arg(short, long)]
         file: PathBuf,
     },
+
+    SendRequest {
+        #[arg(short, long)]
+        file: PathBuf,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -26,10 +32,10 @@ fn main() -> anyhow::Result<()> {
 
     match args.command {
         Commands::Info { file } => {
-            println!("Parsing file: {}", file.display());
-
             let torrent = Torrent::read(&file)?;
             let info_hash = torrent.info.hash()?;
+
+            println!("Parsing file: {}", file.display());
 
             println!("--- Torrent Metadata ---");
             println!("Tracker URL: {}", torrent.announce);
@@ -58,6 +64,28 @@ fn main() -> anyhow::Result<()> {
             } else {
                 anyhow::bail!("Error: Torrent info invalid (neither length nor files present)");
             }
+        }
+
+        Commands::SendRequest { file } => {
+            let torrent = Torrent::read(&file)?;
+            let info_hash = torrent.info.hash()?;
+
+            let peer_id = "-BB0001-123456789012";
+            let port = 6881;
+
+            let request = TrackerRequest::new(&torrent, &info_hash, peer_id, port);
+
+            let url_param = request.as_query_string();
+            let tracker_url = format!("{}?{}", torrent.announce, url_param);
+
+            println!("Tracker URL: {}", tracker_url);
+
+            let response = reqwest::blocking::get(&tracker_url)?;
+            let body = &response.bytes()?;
+
+            println!("Response Status: Success");
+            println!("Response Body: {:?}", body);
+
         }
     }
 
