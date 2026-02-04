@@ -1,11 +1,15 @@
+pub mod peer;
 pub mod torrent;
 pub mod tracker;
-pub mod peer;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::{torrent::Torrent, tracker::{TrackerRequest, TrackerResponse}};
+use crate::{
+    torrent::Torrent,
+    tracker::{TrackerRequest, TrackerResponse},
+};
 
 #[derive(Parser)]
 #[command(name = "BitBorrower")]
@@ -31,9 +35,18 @@ enum Commands {
         #[arg(short, long)]
         file: PathBuf,
     },
+
+    Handshake {
+        #[arg(short, long)]
+        file: PathBuf,
+
+        #[arg(short, long)]
+        peer: String,
+    },
 }
 
 pub const PORT: u16 = 6881;
+pub const PEER_ID: [u8; 20] = *b"-pT0001-123456789012";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -79,9 +92,7 @@ async fn main() -> anyhow::Result<()> {
             let torrent = Torrent::read(&file).await?;
             let info_hash = torrent.info.hash()?;
 
-            let peer_id = "-BB0001-123456789012";
-
-            let request = TrackerRequest::new(&torrent, &info_hash, peer_id, PORT);
+            let request = TrackerRequest::new(&torrent, &info_hash, &PEER_ID, PORT);
 
             let url_param = request.as_query_string();
             let tracker_url = format!("{}?{}", torrent.announce, url_param);
@@ -93,16 +104,13 @@ async fn main() -> anyhow::Result<()> {
 
             println!("Response Status: Success");
             println!("Response Body: {:?}", body);
-
         }
 
         Commands::GetPeers { file } => {
             let torrent = Torrent::read(&file).await?;
             let info_hash = torrent.info.hash()?;
 
-            let peer_id = "-BB0001-123456789012";
-
-            let request = TrackerRequest::new(&torrent, &info_hash, peer_id, PORT);
+            let request = TrackerRequest::new(&torrent, &info_hash, &PEER_ID, PORT);
 
             let url_param = request.as_query_string();
             let tracker_url = format!("{}?{}", torrent.announce, url_param);
@@ -124,6 +132,21 @@ async fn main() -> anyhow::Result<()> {
 
             for (i, peer) in peers.iter().enumerate() {
                 println!("Peer #{}: {:?}", i + 1, peer);
+            }
+        }
+
+        Commands::Handshake { file, peer } => {
+            let torrent = Torrent::read(&file).await?;
+            let info_hash = torrent.info.hash()?;
+
+            let peer_addr: std::net::SocketAddrV4 =
+                peer.parse().context("Failed to parse peer address")?;
+
+            let mut peer = peer::Peer::new(peer_addr);
+
+            match peer.handshake(info_hash, PEER_ID).await {
+                Ok(peer_id) => println!("Remote Peer ID: {}", hex::encode(peer_id)),
+                Err(e) => println!("Error: {}", e),
             }
         }
     }

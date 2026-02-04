@@ -84,7 +84,7 @@ impl std::fmt::Display for Event {
 }
 
 impl TrackerRequest {
-    pub fn new(torrent: &Torrent, info_hash: &[u8; 20], peer_id: &str, port: u16) -> Self {
+    pub fn new(torrent: &Torrent, info_hash: &[u8; 20], peer_id: &[u8; 20], port: u16) -> Self {
         // handle single-file vs multi-file
         let left = if let Some(l) = torrent.info.length {
             l
@@ -96,7 +96,7 @@ impl TrackerRequest {
         };
 
         let info_hash_encoded: String = form_urlencoded::byte_serialize(info_hash).collect();
-        let peer_id_encoded: String = form_urlencoded::byte_serialize(peer_id.as_bytes()).collect();
+        let peer_id_encoded: String = form_urlencoded::byte_serialize(peer_id).collect();
 
         Self {
             info_hash_encoded,
@@ -167,8 +167,7 @@ pub struct TrackerResponse {
 
 impl TrackerResponse {
     pub fn from_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
-        serde_bencode::from_bytes(bytes)
-            .context("Failed to deserialize tracker response")
+        serde_bencode::from_bytes(bytes).context("Failed to deserialize tracker response")
     }
 
     pub fn get_peers(&self) -> anyhow::Result<Vec<Peer>> {
@@ -178,8 +177,15 @@ impl TrackerResponse {
             Some(p) => p,
             None => return Ok(peers),
         };
-        
+
         for chunk in peers_binary.chunks(6) {
+            if peers_binary.len() % 6 != 0 {
+                eprintln!(
+                    "Warning: peers data length {} is not a multiple of 6, some data may be truncated",
+                    peers_binary.len()
+                );
+            }
+
             if chunk.len() == 6 {
                 let ip = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]);
                 let port = u16::from_be_bytes([chunk[4], chunk[5]]);
