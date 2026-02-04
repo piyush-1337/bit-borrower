@@ -14,8 +14,9 @@ pub struct Info {
     pub name: String,
 
     /// The number of bytes in each piece
+    /// The last piece may have a different size
     #[serde(rename = "piece length")]
-    pub piece_length: usize,
+    pub piece_length: u64,
 
     /// String consisting of the concatenation of all 20-byte SHA1 hash values, one per piece (byte string, i.e. not urlencoded)
     /// Used to verify the integrity of the pieces
@@ -24,7 +25,7 @@ pub struct Info {
 
     /// Length of the file in bytes
     /// Available only for single-file torrents
-    pub length: Option<usize>,
+    pub length: Option<u64>,
 
     /// A list containing one or more `File` objects
     /// Available only for multi-file torrents
@@ -34,7 +35,7 @@ pub struct Info {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct File {
     /// Length of the particular file in bytes
-    pub length: usize,
+    pub length: u64,
 
     /// A list containing one or more string elements that together represent the path and filename.
     /// Each element in the list corresponds to either a directory name or (in the case of the final element) the filename

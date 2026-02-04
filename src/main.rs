@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
                 println!("--- Mode: Single-File ---");
                 println!("  File:   {} ({} bytes)", torrent.info.name, length);
             } else {
-                println!("Error: Torrent info invalid (neither length nor files present)");
+                anyhow::bail!("Error: Torrent info invalid (neither length nor files present)");
             }
         }
     }
