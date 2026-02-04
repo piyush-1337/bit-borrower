@@ -33,6 +33,8 @@ enum Commands {
     },
 }
 
+pub const PORT: u16 = 6881;
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -77,9 +79,8 @@ fn main() -> anyhow::Result<()> {
             let info_hash = torrent.info.hash()?;
 
             let peer_id = "-BB0001-123456789012";
-            let port = 6881;
 
-            let request = TrackerRequest::new(&torrent, &info_hash, peer_id, port);
+            let request = TrackerRequest::new(&torrent, &info_hash, peer_id, PORT);
 
             let url_param = request.as_query_string();
             let tracker_url = format!("{}?{}", torrent.announce, url_param);
@@ -99,9 +100,8 @@ fn main() -> anyhow::Result<()> {
             let info_hash = torrent.info.hash()?;
 
             let peer_id = "-BB0001-123456789012";
-            let port = 6881;
 
-            let request = TrackerRequest::new(&torrent, &info_hash, peer_id, port);
+            let request = TrackerRequest::new(&torrent, &info_hash, peer_id, PORT);
 
             let url_param = request.as_query_string();
             let tracker_url = format!("{}?{}", torrent.announce, url_param);
