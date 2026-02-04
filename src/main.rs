@@ -35,12 +35,13 @@ enum Commands {
 
 pub const PORT: u16 = 6881;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     match args.command {
         Commands::Info { file } => {
-            let torrent = Torrent::read(&file)?;
+            let torrent = Torrent::read(&file).await?;
             let info_hash = torrent.info.hash()?;
 
             println!("Parsing file: {}", file.display());
@@ -75,7 +76,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         Commands::SendRequest { file } => {
-            let torrent = Torrent::read(&file)?;
+            let torrent = Torrent::read(&file).await?;
             let info_hash = torrent.info.hash()?;
 
             let peer_id = "-BB0001-123456789012";
@@ -87,8 +88,8 @@ fn main() -> anyhow::Result<()> {
 
             println!("Tracker URL: {}", tracker_url);
 
-            let response = reqwest::blocking::get(&tracker_url)?;
-            let body = &response.bytes()?;
+            let response = reqwest::get(&tracker_url).await?;
+            let body = &response.bytes().await?;
 
             println!("Response Status: Success");
             println!("Response Body: {:?}", body);
@@ -96,7 +97,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         Commands::GetPeers { file } => {
-            let torrent = Torrent::read(&file)?;
+            let torrent = Torrent::read(&file).await?;
             let info_hash = torrent.info.hash()?;
 
             let peer_id = "-BB0001-123456789012";
@@ -108,8 +109,8 @@ fn main() -> anyhow::Result<()> {
 
             println!("Tracker URL: {}", tracker_url);
 
-            let response = reqwest::blocking::get(&tracker_url)?;
-            let body_bytes = &response.bytes()?;
+            let response = reqwest::get(&tracker_url).await?;
+            let body_bytes = &response.bytes().await?;
 
             let tracker_response = TrackerResponse::from_bytes(body_bytes)?;
 
