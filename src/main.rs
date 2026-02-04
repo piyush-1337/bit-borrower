@@ -1,14 +1,16 @@
+pub mod constants;
+pub mod message;
 pub mod peer;
 pub mod torrent;
 pub mod tracker;
-pub mod message;
+pub mod download;
+pub mod queue;
 
-use anyhow::Context;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::{path::PathBuf};
 
 use crate::{
-    message::Message, torrent::Torrent, tracker::{TrackerRequest, TrackerResponse}
+    constants::{PEER_ID, PORT}, download::DownloadWorker, peer::Peer, queue::WorkQueue, torrent::Torrent, tracker::{TrackerRequest, TrackerResponse}
 };
 
 #[derive(Parser)]
@@ -43,10 +45,15 @@ enum Commands {
         #[arg(short, long)]
         peer: String,
     },
-}
 
-pub const PORT: u16 = 6881;
-pub const PEER_ID: [u8; 20] = *b"-pT0001-123456789012";
+    Download {
+        #[arg(short, long)]
+        file: PathBuf,
+
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    }
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -135,52 +142,81 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Commands::Handshake { file, peer } => {
+        // Commands::Handshake { file, peer } => {
+        //     let torrent = Torrent::read(&file).await?;
+        //     let info_hash = torrent.info.hash()?;
+        //     let peer_addr: std::net::SocketAddrV4 = peer.parse()?;
+        //
+        //     println!("Connecting to peer: {}", peer);
+        //     let mut peer = Peer::new(peer_addr);
+        //     let remote_pid = peer.handshake(info_hash, PEER_ID).await?;
+        //     println!("Connected to Peer ID: {}", hex::encode(remote_pid));
+        //
+        //     let worker = DownloadWorker::new(peer);
+        //     worker.start().await?;
+        // }
+
+        Commands::Download { file, output } => {
             let torrent = Torrent::read(&file).await?;
             let info_hash = torrent.info.hash()?;
+            let piece_count = torrent.info.pieces.len() / 20;
 
-            let peer_addr: std::net::SocketAddrV4 =
-                peer.parse().context("Failed to parse peer address")?;
+            println!("Downloading file: {}", torrent.info.name);
+            println!("Starting download of {} pieces", piece_count);
 
-            let mut peer = peer::Peer::new(peer_addr);
+            let queue = std::sync::Arc::new(WorkQueue::new(piece_count));
 
-            match peer.handshake(info_hash, PEER_ID).await {
-                Ok(peer_id) => println!("Remote Peer ID: {}", hex::encode(peer_id)),
-                Err(e) => println!("Error: {}", e),
+            let output_path = output.unwrap_or_else(|| PathBuf::from(&torrent.info.name));
+            let file = tokio::fs::File::create(&output_path).await?;
+            let shared_file = std::sync::Arc::new(tokio::sync::Mutex::new(file));
+
+            let request = TrackerRequest::new(&torrent, &info_hash, &constants::PEER_ID, constants::PORT);
+            let tracker_url = format!("{}?{}", torrent.announce, request.as_query_string());
+            let res = reqwest::get(&tracker_url).await?.bytes().await?;
+            let tracker_response: TrackerResponse = serde_bencode::from_bytes(&res)?;
+            
+            let peers = tracker_response.get_peers()?;
+            let peers_len = peers.len();
+
+            println!("Found {} peers", peers.len());
+
+            let mut handles = Vec::new();
+
+            let piece_length = torrent.info.piece_length as u32;
+            let file_length = torrent.info.length.unwrap();
+    
+            for peer_info in peers.into_iter().take(std::cmp::min(20, peers_len)) {
+                let queue = queue.clone();
+                let file = shared_file.clone();
+                let info_hash = info_hash.clone();
+
+                let handle = tokio::spawn(async move {
+                    println!("Connecting to {}", peer_info.addr);
+
+                    let mut peer = Peer::new(peer_info.addr);
+
+                    if let Err(e) = peer.handshake(info_hash, constants::PEER_ID).await {
+                        println!("Failed to handshake with peer: {}", e);
+                        return;
+                    }
+
+                    let worker = DownloadWorker::new(peer, queue, file, piece_length, file_length);
+                    if let Err(e) = worker.start().await {
+                        println!("Worker {} died: {}", peer_info.addr, e);
+                    }
+                });
+
+                handles.push(handle);
             }
 
-            println!("Connected to peer: {}", peer.addr);
-            println!("Waiting for messages");
-
-            loop {
-                let msg = peer.next_message().await?;
-
-                match msg {
-                    Message::Bitfield(payload) => {
-                        println!("Received Bitfield");
-
-                        println!("Sending Interested");
-                        peer.send_message(Message::Interested).await?;
-                    }
-
-                    Message::Unchoke => {
-                        println!("Received Unchoke");
-                    }
-
-                    Message::Choke => {
-                        println!("Received Choke");
-                    }
-
-                    Message::Have(index) => {
-                        println!("Received Have: {}", index);
-                    }
-
-                    _ => {
-                        println!("Received other message: {:#?}", msg);
-                    }
-                }
+            for handle in handles {
+                handle.await?;
             }
+
+            println!("Download Complete")
         }
+
+        _ => anyhow::bail!("Unknown command"),
     }
 
     Ok(())

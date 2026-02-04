@@ -182,11 +182,15 @@ impl Message {
     }
 }
 
-pub struct Bitfield{
+pub struct Bitfield {
     payload: Vec<u8>,
 }
 
 impl Bitfield {
+    pub fn new(payload: Vec<u8>) -> Self {
+        Self { payload }
+    }
+
     pub fn has_piece(&self, index: usize) -> bool {
         let byte_idx = index / 8;
         let byte_offset = index % 8;
@@ -195,6 +199,10 @@ impl Bitfield {
             return false;
         }
 
-        (self.payload[byte_idx] >> (7-byte_offset)) & 1 == 1
+        (self.payload[byte_idx] >> (7 - byte_offset)) & 1 == 1
+    }
+
+    pub fn pieces(&self) -> usize {
+        self.payload.len() * 8
     }
 }
