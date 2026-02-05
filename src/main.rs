@@ -1,16 +1,21 @@
 pub mod constants;
+pub mod download;
 pub mod message;
 pub mod peer;
+pub mod queue;
 pub mod torrent;
 pub mod tracker;
-pub mod download;
-pub mod queue;
 
 use clap::{Parser, Subcommand};
-use std::{path::PathBuf};
+use std::path::PathBuf;
 
 use crate::{
-    constants::{PEER_ID, PORT}, download::DownloadWorker, peer::Peer, queue::WorkQueue, torrent::Torrent, tracker::{TrackerRequest, TrackerResponse}
+    constants::{PEER_ID, PORT},
+    download::DownloadWorker,
+    peer::Peer,
+    queue::WorkQueue,
+    torrent::Torrent,
+    tracker::{TrackerRequest, TrackerResponse},
 };
 
 #[derive(Parser)]
@@ -52,7 +57,7 @@ enum Commands {
 
         #[arg(short, long)]
         output: Option<PathBuf>,
-    }
+    },
 }
 
 #[tokio::main]
@@ -155,7 +160,6 @@ async fn main() -> anyhow::Result<()> {
         //     let worker = DownloadWorker::new(peer);
         //     worker.start().await?;
         // }
-
         Commands::Download { file, output } => {
             let torrent = Torrent::read(&file).await?;
             let info_hash = torrent.info.hash()?;
@@ -170,11 +174,26 @@ async fn main() -> anyhow::Result<()> {
             let file = tokio::fs::File::create(&output_path).await?;
             let shared_file = std::sync::Arc::new(tokio::sync::Mutex::new(file));
 
-            let request = TrackerRequest::new(&torrent, &info_hash, &constants::PEER_ID, constants::PORT);
+            let request =
+                TrackerRequest::new(&torrent, &info_hash, &constants::PEER_ID, constants::PORT);
             let tracker_url = format!("{}?{}", torrent.announce, request.as_query_string());
-            let res = reqwest::get(&tracker_url).await?.bytes().await?;
-            let tracker_response: TrackerResponse = serde_bencode::from_bytes(&res)?;
-            
+            let res = match reqwest::get(&tracker_url).await?.bytes().await {
+                Ok(res) => res,
+                Err(e) => {
+                    println!("Failed to get tracker response: {}", e);
+                    anyhow::bail!("Failed to get tracker response");
+                }
+            };
+
+            let tracker_response: TrackerResponse = match serde_bencode::from_bytes(&res) {
+                Ok(res) => res,
+                Err(e) => {
+                    println!("Failed to parse tracker response: {}", e);
+                    println!("Printing response: {}", String::from_utf8_lossy(&res));
+                    anyhow::bail!("Failed to parse tracker response");
+                }
+            };
+
             let peers = tracker_response.get_peers()?;
             let peers_len = peers.len();
 
@@ -184,7 +203,7 @@ async fn main() -> anyhow::Result<()> {
 
             let piece_length = torrent.info.piece_length as u32;
             let file_length = torrent.info.length.unwrap();
-    
+
             for peer_info in peers.into_iter().take(std::cmp::min(20, peers_len)) {
                 let queue = queue.clone();
                 let file = shared_file.clone();

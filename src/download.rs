@@ -130,57 +130,74 @@ impl DownloadWorker {
         println!("Downloading Piece {}...", index);
 
         let begin_offset = index as u64 * self.piece_length as u64;
-        let mut current_piece_length = self.piece_length;
-        if begin_offset + current_piece_length as u64 > self.file_length {
-            current_piece_length = (self.file_length - begin_offset) as u32;
+        let mut piece_len = self.piece_length;
+
+        if begin_offset + piece_len as u64 > self.file_length {
+            piece_len = (self.file_length - begin_offset) as u32;
         }
 
+        let mut piece_buffer = vec![0u8; piece_len as usize];
+
         let mut downloaded = 0;
-        while downloaded < current_piece_length {
-            let remaining = current_piece_length - downloaded;
-            let block_size = std::cmp::min(crate::constants::BLOCK_MAX, remaining);
+        let mut requested = 0;
+        let mut backlog = 0;
+        let max_backlog = 5;
 
-            self.peer
-                .send_message(Message::Request {
-                    index: index as u32,
-                    begin: downloaded,
-                    length: block_size,
-                })
-                .await?;
+        while downloaded < piece_len {
+            while backlog < max_backlog && requested < piece_len {
+                let remaining = piece_len - requested;
+                let block_size = std::cmp::min(crate::constants::BLOCK_MAX, remaining);
 
-            loop {
-                let msg = self.peer.next_message().await?;
+                self.peer
+                    .send_message(Message::Request {
+                        index: index as u32,
+                        begin: requested,
+                        length: block_size,
+                    })
+                    .await?;
 
-                match msg {
-                    Message::Piece {
-                        index: idx,
-                        begin,
-                        block,
-                    } => {
-                        if idx as usize == index && begin == downloaded {
-                            let mut file = self.file.lock().await;
-                            file.seek(SeekFrom::Start(begin_offset + begin as u64))
-                                .await?;
-                            file.write_all(&block).await?;
-
-                            downloaded += block.len() as u32;
-                            break;
-                        } else {
-                            println!("Received unexpected block: Piece {} Offset {}", idx, begin);
-                        }
-                    }
-                    Message::Choke => {
-                        anyhow::bail!("Peer choked during download");
-                    }
-                    _ => {}
-                }
+                backlog += 1;
+                requested += block_size;
             }
+
+            let msg = self.peer.next_message().await?;
+
+            match msg {
+                Message::Piece {
+                    index: idx,
+                    begin,
+                    block,
+                } => {
+                    if idx as usize == index
+                        && begin < piece_len
+                        && (begin + block.len() as u32) <= piece_len
+                    {
+                        let begin_usize = begin as usize;
+                        piece_buffer[begin_usize..begin_usize + block.len()]
+                            .copy_from_slice(&block);
+
+                        downloaded += block.len() as u32;
+                        backlog -= 1;
+                    } else {
+                        // Ignore irrelevant blocks or log error
+                    }
+                }
+                Message::Choke => {
+                    anyhow::bail!("Peer choked during download");
+                }
+                _ => {}
+            }
+        }
+
+        {
+            let mut file = self.file.lock().await;
+            file.seek(SeekFrom::Start(begin_offset)).await?;
+            file.write_all(&piece_buffer).await?;
         }
 
         println!("Finished Piece {}", index);
         Ok(())
     }
-
     async fn send_interested(&mut self) -> anyhow::Result<()> {
         if !self.am_interested {
             self.am_interested = true;
